@@ -29,7 +29,7 @@ def load_data(path):
     vectordb = Chroma.from_documents(
         documents=docs,
         embedding=embeddings,
-        persist_directory='docs/chroma/'
+        # persist_directory='docs/chroma/'
     )
     return vectordb
 
