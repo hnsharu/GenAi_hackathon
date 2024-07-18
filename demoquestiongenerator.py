@@ -14,6 +14,9 @@ from langchain.chains import RetrievalQA
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_google_genai import GoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
+import langchain
+
+langchain.debug=True
 
 
 text_splitter=RecursiveCharacterTextSplitter(chunk_size=500,chunk_overlap=100)
