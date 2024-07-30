@@ -10,6 +10,8 @@ from datetime import date
 from langchain.agents import tool
 import langchain
 from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -105,7 +107,7 @@ def answer_validator(txt:str)->str:
     """  
     The answer_validator tool validates the user's answers against the actual answers and provides the detailed explaination validation process with scores.
     Input should be a empty string. use this tool when user asks for the score or marks,\
-    This tool returns status of validation and the details of validation process and users score.\
+    The tool output is a string with specific sections for total marks, question-wise marks, user answers, correct answers, relevant lines, metadata, and explanations.\
     """
 
     model = genai.GenerativeModel(
@@ -128,20 +130,28 @@ def answer_validator(txt:str)->str:
             Question [number]: [1 or 0 points]\
             User's answer: [user's answer]\
             Correct answer: [correct answer]\
-            Explanation: [why the user's answer is incorrect, if applicable]\
+            relevant line: [relevent line]\
+            metadata: [metadata]\
+            Explanation: [Defend you evaluation]\
             ....
         
         Example Output:
 
-        Total marks: 2 \n\n\
+        Total user marks: 2 \n\n\
         Question wise marks:\n\
 
             Question 1: 1 point\n\
                 User's answer: a\n\
                 Correct answer: a\n\n\
+                relevent line: "Example relevant line"\
+                metadata: "Example metadata"\
+                Explanation: Option b is incorrect because [explanation]. The correct answer is c.\
+
             Question 2: 0 points\n\
                 User's answer: b\n\
                 Correct answer: c\n\n\
+                relevent line: "Example relevant line"\
+                metadata: "Example metadata"\
                 Explanation: Option b is incorrect because [explanation]. The correct answer is c.\
               """  )
         
@@ -156,7 +166,7 @@ def answer_validator(txt:str)->str:
     response=model.generate_content(str(data))
 
 
-    return "User Answers Validated Successfully \n\n"+ response.text
+    return "here is the user marks: "+response.text
     
 
 @tool
@@ -181,7 +191,7 @@ def generate_questions(params:str)->str:
       - An ID of "question" (no numbers in the ID).
       - A paragraph element (<p>) containing the question text with question number.
       - For multiple-choice questions:
-        - A nested div with an ID of "options" (no numbers in the ID) that contains three radio button inputs. Each radio button input should have:
+        - A nested div with an ID of "mcq" (no numbers in the ID) that contains three radio button inputs. Each radio button input should have:
           -- An ID of "option" (no numbers in the ID).
           -- A name attribute unique to the question (e.g., "question1", "question2").
           -- A value attribute representing the answer option (e.g., "a", "b", "c").
@@ -190,6 +200,10 @@ def generate_questions(params:str)->str:
         - A nested div with an ID of "shortAnswer" (no numbers in the ID) that contains a single text input field. The text input should have:
           -- An ID of "shortAnswerInput" (no numbers in the ID).
           -- A name attribute unique to the question (e.g., "question6", "question7").
+      - For coding questions:
+        - A nested div with an ID of "coding" (no numbers in the ID) that contains a textarea element. The textarea should have:
+        -- An ID of "codingInput" (no numbers in the ID).
+        -- A name attribute unique to the question (e.g., "question8", "question9").
 
     4. Include a submit button at the end of the form with the text "Submit".
     5. Remember not to add numbers in the IDs.
@@ -204,11 +218,11 @@ def generate_questions(params:str)->str:
     {
       "form": "<form id='QuestionnaireForm' action='/submit' method='post'>...</form>",
       "answers": {
-        "question1": "correct answers, along with relevant line extracted from the provided context",
-        "question2": "correct answers, along with relevant line extracted from the provided context",
-        "question3": "correct answers, along with relevant line extracted from the provided context",
-        "question4": "correct answers, along with relevant line extracted from the provided context",
-        "question5": "correct answers, along with relevant line extracted from the provided context",
+        "question1": "correct answers, relevant_line: [line extracted from the provided context], metadata:[metadata of relevent line]",
+        "question2": "correct answers, relevant_line: [line extracted from the provided context], metadata:[metadata of relevent line]",
+        "question3": "correct answers, relevant_line: [line extracted from the provided context], metadata:[metadata of relevent line]",
+        "question4": "correct answers, relevant_line: [line extracted from the provided context], metadata:[metadata of relevent line]",
+        "question5": "correct answers, relevant_line: [line extracted from the provided context], metadata:[metadata of relevent line]",
         ...
       }
     }
@@ -292,7 +306,7 @@ def get_revelent_context(topic: str) -> str:
     """
     
     relevent_doc=st.session_state["vectordb"].similarity_search(topic,k=2)
-    st.session_state["relevant_context"]="\n\n".join([doc.page_content for doc in relevent_doc])
+    st.session_state["relevant_context"]="\n\n".join([str(doc) for doc in relevent_doc])
 
     return "The relevent context retrived successfuly!No need to retrive again Please continue further with asking difficulty level"
 
@@ -303,27 +317,25 @@ def web_search(topic:str) -> str:
     the input should be always a topic that user wants to search for \n\
     this function always return the status of searching and getting data
     """
-    st.session_state["relevant_context"]=""" CreateStateMachineAlias
- Creates an 
-alias for a state machine that points to one or two 
-You can set your application to call 
-versions of the same state machine. 
-StartExecution with an alias and update the version the alias 
-uses without changing the client's code.
- You can also map an alias to split 
-StartExecution requests between two versions of a state 
-machine. To do this, add a second RoutingConfig object in the routingConfiguration
- parameter. You must also specify the percentage of execution run requests each version should 
-receive in both RoutingConfig objects. Step Functions randomly chooses which version runs a 
-given execution based on the percentage you specify.
- To create an alias that points to a single version, specify a single RoutingConfig object with a
- weight set to 100.
- You can create up to 100 aliases for each state machine. You must delete unused aliases using the
- DeleteStateMachineAlias API action.
- CreateStateMachineAlias is an idempotent API. Step Functions bases the idempotency check 
-on the stateMachineArn, description, name, and routingConfiguration parameters. 
-Requests that contain the same values for these parameters return a successful idempotent 
-response without creating a duplicate resource """
+
+    tool = TavilySearchResults(k=2)
+    results =tool.invoke({"query": topic})
+    relevent_context=""
+    docs=[]
+    for res in results:
+        loader = WebBaseLoader(res['url'])
+        data = loader.load()
+        doc=text_splitter.split_documents(data)
+        docs.extend(doc)
+
+    st.session_state["vectordb"]= Chroma.from_documents(
+        documents=docs,
+        embedding=embeddings,
+    )
+
+    relevent_doc=st.session_state["vectordb"].similarity_search(topic,k=5)
+    st.session_state["relevant_context"]="\n\n".join([str(doc) for doc in relevent_doc])
+ 
 
     return "The web search successfuly!No need to search again Please continue further with asking difficulty level"
 
@@ -359,7 +371,7 @@ Assistant is constantly learning and improving, and its capabilities are constan
 
 Overall, Assistant is a powerful tool that can help with a wide range of tasks and provide valuable insights and information on a wide range of topics. Whether you need help with a specific question or just want to have a conversation about a particular topic, Assistant is here to assist.
 
-You are an user-friendly Question Generating Assistant. Answer the human message accordingly and orchestrate the process of generating questions (MCQs/ Short Answers) based on workflow defined and tool outputs as best you can. you need to orchestrate the flow correctly as defined below
+You are an user-friendly Question Generating Assistant. Answer the human message accordingly and orchestrate the process of generating questions (MCQs/ Short Answers/coding) based on workflow defined and tool outputs as best you can. you need to orchestrate the flow correctly as defined below
 always follow these steps:
 
 1. Greet the user and ask for the source of the content for the questions (Upload a document, Use API to search the web, Use LLM's own knowledge).
@@ -371,7 +383,9 @@ always follow these steps:
         -- Once the document is loaded, ask for the topic.
         -- Use the `get_relevant_context` tool to extract the relevant context for the topic.
         -- Please ask the user for following details:
-            - Difficulty level of the questions (Easy, Medium, Hard), Question type (Multiple-choice-questions, short-answers), Number of questions (greater than 0 and less than 11).
+            - Difficulty level of the questions (Easy, Medium, Hard), Question type (Multiple-choice-questions, short-answers, coding questions), Number of questions (greater than 0 and less than 11).
+        -- User can input the details in any order, not necessarily in the format specified above.
+        -- number of questions can be entered along with the difficulty level as well.
         -- If any input is missing, respond with: "You missed [attribute]. Please provide the [attribute]."
         -- Ensure all three inputs are provided before proceeding.
         -- use the generate question tool to generate question with that difficulty level, type of questions and make use_relevant_context parameter 'yes'. note: please use json format.
@@ -380,7 +394,9 @@ always follow these steps:
         -- Ask the user for the topic that user wants to search in web.
         -- Use the web_search tool with the user mentioned topic.
         -- Please ask the user for following details:
-            - Difficulty level of the questions (Easy, Medium, Hard), Question type (Multiple-choice-questions, short-answers), Number of questions (greater than 0 and less than 11).
+            - Difficulty level of the questions (Easy, Medium, Hard), Question type (Multiple-choice-questions, short-answers, coding questions), Number of questions (greater than 0 and less than 11).
+        -- User can input the details in any order, not necessarily in the format specified above.
+        -- number of questions can be entered along with the difficulty level as well.
         -- If any input is missing, respond with: "You missed [attribute]. Please provide the [attribute]."
         -- Ensure all three inputs are provided before proceeding.
         -- use the generate question tool to generate question with that difficulty level, type of questions and make use_relevant_context parameter 'yes'. note: please use json format
@@ -388,7 +404,9 @@ always follow these steps:
     - if to Use LLM's own knowledge:
         -- Ask for the topic.
         -- Please ask the user for following details:
-            - Difficulty level of the questions (Easy, Medium, Hard), Question type (Multiple-choice-questions, short-answers), Number of questions (greater than 0 and less than 11).
+            - Difficulty level of the questions (Easy, Medium, Hard), Question type (Multiple-choice-questions, short-answers, coding questions), Number of questions (greater than 0 and less than 11).
+        -- User can input the details in any order, not necessarily in the format specified above.
+        -- number of questions can be entered along with the difficulty level as well.
         -- If any input is missing, respond with: "You missed [attribute]. Please provide the [attribute]."
         -- Ensure all three inputs are provided before proceeding.
         -- use the generate question tool to generate question with that difficulty level, type of questions and make use_relevant_context parameter 'no' and pass a addition parameter. topic: it is the topic user specified . note: please use json format
